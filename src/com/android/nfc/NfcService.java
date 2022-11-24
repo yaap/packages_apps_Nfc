@@ -39,6 +39,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.UserInfo;
 import android.content.res.Resources.NotFoundException;
+import android.database.ContentObserver;
 import android.media.AudioAttributes;
 import android.media.SoundPool;
 import android.net.Uri;
@@ -232,6 +233,7 @@ public class NfcService implements DeviceHostListener {
     public static final int SOUND_START = 0;
     public static final int SOUND_END = 1;
     public static final int SOUND_ERROR = 2;
+    private boolean mPlaySounds = true;
 
     public static final int NCI_VERSION_2_0 = 0x20;
 
@@ -661,6 +663,8 @@ public class NfcService implements DeviceHostListener {
 
     void initSoundPool() {
         synchronized (this) {
+            mSettingsObserver.update();
+            mSettingsObserver.observe();
             if (mSoundPool == null) {
                 mSoundPool = new SoundPool.Builder()
                         .setMaxStreams(1)
@@ -679,6 +683,7 @@ public class NfcService implements DeviceHostListener {
 
     void releaseSoundPool() {
         synchronized (this) {
+            mSettingsObserver.stop();
             if (mSoundPool != null) {
                 mSoundPool.release();
                 mSoundPool = null;
@@ -1106,6 +1111,11 @@ public class NfcService implements DeviceHostListener {
         synchronized (this) {
             if (mSoundPool == null) {
                 Log.w(TAG, "Not playing sound when NFC is disabled");
+                return;
+            }
+
+            if (!mPlaySounds) {
+                Log.d(TAG, "NFC sounds are disabled by the user");
                 return;
             }
 
@@ -3360,6 +3370,34 @@ public class NfcService implements DeviceHostListener {
             }
         }
     };
+
+    private final SettingsObserver mSettingsObserver = new SettingsObserver();
+    private class SettingsObserver extends ContentObserver {
+        SettingsObserver() {
+            super(mHandler);
+        }
+
+        void update() {
+            mPlaySounds = Settings.Secure.getInt(
+                    mContext.getContentResolver(),
+                    Settings.Secure.NFC_SOUNDS, 1) == 1;
+        }
+
+        void observe() {
+            mContext.getContentResolver().registerContentObserver(
+                    Settings.Secure.getUriFor(Settings.Secure.NFC_SOUNDS),
+                    false, this);
+        }
+
+        void stop() {
+            mContext.getContentResolver().unregisterContentObserver(this);
+        }
+
+        @Override
+        public void onChange(boolean selfChange) {
+            update();
+        }
+    }
 
     private final IVrStateCallbacks mVrStateCallbacks = new IVrStateCallbacks.Stub() {
         @Override
