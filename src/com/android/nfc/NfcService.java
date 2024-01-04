@@ -1316,9 +1316,7 @@ public class NfcService implements DeviceHostListener, ForegroundUtils.Callback 
     }
 
     public boolean isSecureNfcEnabled() {
-        synchronized (NfcService.this) {
-            return mIsSecureNfcEnabled;
-        }
+        return mIsSecureNfcEnabled;
     }
 
     final class NfcAdapterService extends INfcAdapter.Stub {
