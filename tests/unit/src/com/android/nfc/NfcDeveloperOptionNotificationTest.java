@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2022 The Android Open Source Project
+ * Copyright (C) 2024 The Android Open Source Project
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,22 +13,34 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 package com.android.nfc;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import android.bluetooth.BluetoothProtoEnums;
+import android.annotation.NonNull;
+import android.annotation.Nullable;
+import android.app.NotificationManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.ContextWrapper;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.Resources;
-import android.nfc.Tag;
-import android.os.Bundle;
+import android.net.wifi.WifiConfiguration;
+import android.nfc.FormatException;
+import android.nfc.NdefMessage;
+import android.nfc.NdefRecord;
+import android.nfc.tech.Ndef;
+import android.os.Handler;
 import android.os.PowerManager;
 import android.util.Log;
-import androidx.test.ext.junit.runners.AndroidJUnit4;
-import androidx.test.platform.app.InstrumentationRegistry;
 
 import com.android.dx.mockito.inline.extended.ExtendedMockito;
 import com.android.nfc.handover.HandoverDataParser;
@@ -40,20 +52,26 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.MockitoSession;
+import org.mockito.quality.Strictness;
+
+import androidx.test.ext.junit.runners.AndroidJUnit4;
+import androidx.test.platform.app.InstrumentationRegistry;
+
 
 @RunWith(AndroidJUnit4.class)
-public final class NfcTagOccurredTest {
+public class NfcDeveloperOptionNotificationTest {
 
-    private static final String TAG = NfcTagOccurredTest.class.getSimpleName();
+    private static final String TAG = NfcDeveloperOptionNotificationTest.class.getSimpleName();
     private boolean mNfcSupported;
-
     private MockitoSession mStaticMockSession;
-    private NfcDispatcher mNfcDispatcher;
+    private Context mockContext;
+    private NfcDeveloperOptionNotification mNfcDevOptionNoti;
+    private  NotificationManager mockNotificationManager;
 
     @Before
-    public void setUp() {
+    public void setUp() throws Exception {
         mStaticMockSession = ExtendedMockito.mockitoSession()
-                .mockStatic(NfcStatsLog.class)
+                .strictness(Strictness.LENIENT)
                 .startMocking();
 
         Context context = InstrumentationRegistry.getInstrumentation().getTargetContext();
@@ -64,20 +82,19 @@ public final class NfcTagOccurredTest {
         }
         mNfcSupported = true;
 
-        PowerManager mockPowerManager = Mockito.mock(PowerManager.class);
-        when(mockPowerManager.isInteractive()).thenReturn(false);
+        mockNotificationManager = Mockito.mock(NotificationManager.class);
         Resources mockResources = Mockito.mock(Resources.class);
         when(mockResources.getBoolean(eq(R.bool.tag_intent_app_pref_supported)))
                 .thenReturn(false);
 
-        Context mockContext = new ContextWrapper(context) {
+        mockContext = new ContextWrapper(context) {
             @Override
             public Object getSystemService(String name) {
-              if (Context.POWER_SERVICE.equals(name)) {
-                  Log.i(TAG, "[Mock] mockPowerManager");
-                  return mockPowerManager;
-              }
-              return super.getSystemService(name);
+                if (Context.NOTIFICATION_SERVICE.equals(name)) {
+                    Log.i(TAG, "[Mock] mockNotificationManager");
+                    return mockNotificationManager;
+                }
+                return super.getSystemService(name);
             }
 
             @Override
@@ -85,31 +102,32 @@ public final class NfcTagOccurredTest {
                 Log.i(TAG, "[Mock] getResources");
                 return mockResources;
             }
+
+            @Override
+            public Intent registerReceiverForAllUsers(@Nullable BroadcastReceiver receiver,
+                    @NonNull IntentFilter filter, @Nullable String broadcastPermission,
+                    @Nullable Handler scheduler) {
+                Log.i(TAG, "[Mock] getIntent");
+                return Mockito.mock(Intent.class);
+            }
         };
 
         InstrumentationRegistry.getInstrumentation().runOnMainSync(
-              () -> mNfcDispatcher = new NfcDispatcher(mockContext,
-                      new HandoverDataParser(), false));
-        Assert.assertNotNull(mNfcDispatcher);
+                () -> mNfcDevOptionNoti = new NfcDeveloperOptionNotification(mockContext));
+        Assert.assertNotNull(mNfcDevOptionNoti);
     }
 
     @After
-    public void tearDown() {
+    public void tearDown() throws Exception {
         mStaticMockSession.finishMocking();
     }
 
     @Test
-    public void testLogOthers() {
+    public void testStartNotification() {
         if (!mNfcSupported) return;
 
-        Tag tag = Tag.createMockTag(null, new int[0], new Bundle[0], 0L);
-        mNfcDispatcher.dispatchTag(tag);
-        ExtendedMockito.verify(() -> NfcStatsLog.write(
-                NfcStatsLog.NFC_TAG_OCCURRED,
-                NfcStatsLog.NFC_TAG_OCCURRED__TYPE__OTHERS,
-                -1,
-                tag.getTechCodeList(),
-                BluetoothProtoEnums.MAJOR_CLASS_UNCATEGORIZED,
-                ""));
+
+        mNfcDevOptionNoti.startNotification();
+        verify(mockNotificationManager).createNotificationChannel(any());
     }
 }
