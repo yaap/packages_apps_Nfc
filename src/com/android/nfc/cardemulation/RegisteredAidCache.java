@@ -16,6 +16,7 @@
 
 package com.android.nfc.cardemulation;
 
+import android.annotation.NonNull;
 import android.annotation.TargetApi;
 import android.annotation.FlaggedApi;
 import android.app.ActivityManager;
@@ -28,9 +29,12 @@ import android.os.UserHandle;
 import android.os.UserManager;
 import android.sysprop.NfcProperties;
 import android.util.Log;
+import android.util.Pair;
 import android.util.proto.ProtoOutputStream;
 
 import com.android.nfc.NfcService;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -137,6 +141,10 @@ public class RegisteredAidCache {
                     ", mustRoute=" + mustRoute +
                     '}';
         }
+
+        String getCategory() {
+            return category;
+        }
     }
 
     final AidResolveInfo EMPTY_RESOLVE_INFO = new AidResolveInfo();
@@ -163,9 +171,15 @@ public class RegisteredAidCache {
     boolean mRequiresScreenOnServiceExist = false;
 
     public RegisteredAidCache(Context context, WalletRoleObserver walletRoleObserver) {
+        this(context, walletRoleObserver, new AidRoutingManager());
+    }
+
+    @VisibleForTesting
+    public RegisteredAidCache(Context context, WalletRoleObserver walletRoleObserver,
+            AidRoutingManager routingManager) {
         mContext = context;
         mWalletRoleObserver = walletRoleObserver;
-        mRoutingManager = new AidRoutingManager();
+        mRoutingManager = routingManager;
         mPreferredPaymentService = null;
         mUserIdPreferredPaymentService = -1;
         mPreferredForegroundService = null;
@@ -1189,15 +1203,56 @@ public class RegisteredAidCache {
         }
     }
 
-    public ComponentName getPreferredService() {
+    @NonNull
+    public Pair<Integer, ComponentName> getPreferredService() {
         if (mPreferredForegroundService != null) {
             // return current foreground service
-            return mPreferredForegroundService;
+            return new Pair<>(mUserIdPreferredForegroundService, mPreferredForegroundService);
         } else {
             // return current preferred service
-            return mPreferredPaymentService;
+            return getPreferredPaymentService();
         }
     }
+
+    @NonNull
+    public Pair<Integer, ComponentName> getPreferredPaymentService() {
+         return new Pair<>(mUserIdPreferredPaymentService, mPreferredPaymentService);
+    }
+
+    public boolean isPreferredServicePackageNameForUser(String packageName, int userId) {
+        if (mPreferredForegroundService != null) {
+            if (mPreferredForegroundService.getPackageName().equals(packageName) &&
+                userId == mUserIdPreferredForegroundService) {
+                return true;
+            } else {
+                Log.i(TAG, "NfcService:" + packageName + "(" + userId
+                    + ") is not equal to the foreground service "
+                    + mPreferredForegroundService + "(" + mUserIdPreferredForegroundService +")" );
+                return false;
+            }
+        } else if(mWalletRoleObserver.isWalletRoleFeatureEnabled()) {
+            if (mDefaultWalletHolderPackageName != null &&
+                mDefaultWalletHolderPackageName.equals(packageName) &&
+                userId == mUserIdDefaultWalletHolder) {
+                return true;
+            } else {
+                Log.i(TAG, "NfcService:" + packageName + "(" + userId
+                    + ")  is not equal to the default wallet service "
+                    + mDefaultWalletHolderPackageName + "(" + mUserIdDefaultWalletHolder +")" );
+                return false;
+            }
+        } else if (mPreferredPaymentService != null &&
+            userId == mUserIdPreferredPaymentService &&
+            mPreferredPaymentService.getPackageName().equals(packageName)) {
+            return true;
+        } else {
+            Log.i(TAG, "NfcService:" + packageName + "(" + userId
+                    + ") is not equal to the default payment service "
+                    + mPreferredPaymentService + "(" + mUserIdPreferredPaymentService +")" );
+            return false;
+        }
+    }
+
 
     public void onNfcDisabled() {
         synchronized (mLock) {
